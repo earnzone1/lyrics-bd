@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>গানের লিরিক্স - Lyrics BD</title>
+<meta name="description" content="বাংলা গানের লিরিক্স - সব গানের কথা এক জায়গায়">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hind Siliguri',sans-serif;background:#0d0b16;color:#e0d7f5;min-height:100vh}
+.ad-zone{background:rgba(255,255,255,0.03);border:1px dashed rgba(199,125,255,0.15);border-radius:8px;text-align:center;display:flex;align-items:center;justify-content:center;color:#3a2d4e;font-size:11px;overflow:hidden}
+.ad-top{width:100%;min-height:90px}
+.ad-mid{width:100%;min-height:250px;margin:24px 0}
+.ad-bottom{width:100%;min-height:90px;margin-top:24px}
+.ad-sidebar{width:100%;min-height:280px}
+.ad-inline{width:100%;min-height:90px;margin:16px 0}
+.banner-wrap{width:100%;position:relative;overflow:hidden;border-radius:14px;margin-bottom:24px;background:#1a0e2e}
+.banner-slides{display:flex;transition:transform .5s ease}
+.banner-slide{min-width:100%}
+.banner-slide img{width:100%;max-height:280px;object-fit:cover;display:block}
+.banner-dots{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:5}
+.banner-dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.4);cursor:pointer;transition:background .2s}
+.banner-dot.active{background:#c77dff}
+.banner-arrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.5);border:none;color:#fff;font-size:20px;width:36px;height:36px;border-radius:50%;cursor:pointer;z-index:5}
+.banner-arrow.prev{left:10px}
+.banner-arrow.next{right:10px}
+.banner-hidden{display:none}
+.top-ad-bar{background:#0d0b16;padding:6px 16px;text-align:center;border-bottom:1px solid rgba(180,130,255,0.08)}
+header{background:rgba(255,255,255,0.04);border-bottom:1px solid rgba(180,130,255,0.15);position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)}
+.header-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;gap:12px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:8px;text-decoration:none}
+.logo-icon{font-size:24px}
+.logo-text h1{font-size:20px;font-weight:700;color:#c77dff;line-height:1}
+.logo-text small{font-size:11px;color:#7b6a99}
+.search-wrap{flex:1;max-width:420px;position:relative}
+.search-wrap input{width:100%;padding:10px 40px 10px 14px;background:rgba(255,255,255,0.07);border:1px solid rgba(180,130,255,0.2);border-radius:24px;color:#e0d7f5;font-size:14px;font-family:inherit;outline:none;transition:border-color .2s}
+.search-wrap input:focus{border-color:#c77dff}
+.page-wrap{max-width:1100px;margin:0 auto;padding:24px 16px}
+.layout{display:grid;grid-template-columns:1fr 280px;gap:24px}
+.filter-scroll{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:20px;scrollbar-width:none}
+.filter-scroll::-webkit-scrollbar{display:none}
+.filter-btn{padding:7px 16px;background:rgba(255,255,255,0.06);border:1px solid rgba(180,130,255,0.15);border-radius:20px;color:#9a8ab0;font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap;transition:all .2s}
+.filter-btn.active{background:rgba(199,125,255,0.2);border-color:#c77dff;color:#e0c8ff}
+.song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+.song-card{background:rgba(255,255,255,0.04);border:1px solid rgba(180,130,255,0.12);border-radius:12px;padding:18px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
+.song-card::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(#7b2fff,#c77dff);opacity:0;transition:opacity .2s}
+.song-card:hover{border-color:rgba(180,130,255,0.3);transform:translateY(-2px)}
+.song-card:hover::before{opacity:1}
+.song-cat{font-size:11px;padding:2px 10px;border-radius:20px;background:rgba(199,125,255,0.12);color:#c77dff;border:1px solid rgba(199,125,255,0.2);display:inline-block;margin-bottom:10px}
+.song-title{font-size:16px;font-weight:600;color:#e0d7f5;margin-bottom:6px}
+.song-artist{font-size:13px;color:#9a8ab0;margin-bottom:8px}
+.song-snippet{font-size:12px;color:#6a5c80;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.song-card-footer{display:flex;align-items:center;justify-content:space-between;margin-top:12px}
+.song-date{font-size:11px;color:#5a4d6e}
+.read-btn{font-size:12px;color:#c77dff}
+.sidebar-widget{background:rgba(255,255,255,0.04);border:1px solid rgba(180,130,255,0.12);border-radius:12px;padding:18px;margin-bottom:18px}
+.sidebar-widget h3{font-size:14px;font-weight:600;color:#c77dff;margin-bottom:14px}
+.popular-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);cursor:pointer}
+.popular-item:last-child{border-bottom:none}
+.popular-item:hover .pop-title{color:#c77dff}
+.pop-num{font-size:20px;font-weight:700;color:rgba(199,125,255,0.2);min-width:28px}
+.pop-info{flex:1;min-width:0}
+.pop-title{font-size:13px;font-weight:600;color:#c0b0d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pop-artist{font-size:11px;color:#7b6a99}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;overflow-y:auto;padding:20px}
+.modal-overlay.open{display:flex;align-items:flex-start;justify-content:center}
+.modal{background:#16102a;border:1px solid rgba(180,130,255,0.25);border-radius:16px;width:100%;max-width:680px;margin:auto;overflow:hidden;animation:slideUp .25s ease}
+@keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}
+.modal-header{padding:24px 24px 16px;border-bottom:1px solid rgba(180,130,255,0.12);display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.modal-cat{font-size:11px;padding:2px 10px;border-radius:20px;background:rgba(199,125,255,0.12);color:#c77dff;border:1px solid rgba(199,125,255,0.2);display:inline-block;margin-bottom:8px}
+.modal-title{font-size:22px;font-weight:700;color:#e0d7f5}
+.modal-artist{font-size:14px;color:#9a8ab0;margin-top:4px}
+.close-btn{background:rgba(255,255,255,0.08);border:none;color:#c0b0d8;font-size:18px;width:36px;height:36px;border-radius:8px;cursor:pointer;flex-shrink:0}
+.modal-ad{background:rgba(255,255,255,0.03);border-top:1px dashed rgba(199,125,255,0.15);border-bottom:1px dashed rgba(199,125,255,0.15);padding:8px;text-align:center;min-height:90px;display:flex;align-items:center;justify-content:center;color:#3a2d4e;font-size:11px}
+.modal-body{padding:20px 24px 24px}
+.lyrics-box{background:rgba(255,255,255,0.03);border:1px solid rgba(180,130,255,0.1);border-radius:10px;padding:20px;font-size:16px;line-height:2;color:#d0c5e8;white-space:pre-wrap;word-break:break-word;margin-bottom:16px}
+.modal-footer{display:flex;align-items:center;gap:12px;padding:16px 24px;border-top:1px solid rgba(180,130,255,0.1);flex-wrap:wrap}
+.yt-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;background:rgba(255,0,0,0.15);border:1px solid rgba(255,100,100,0.3);border-radius:8px;color:#ff9090;font-size:13px;font-family:inherit;cursor:pointer;text-decoration:none}
+.share-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;background:rgba(100,200,255,0.1);border:1px solid rgba(100,200,255,0.2);border-radius:8px;color:#7dc8ff;font-size:13px;font-family:inherit;cursor:pointer}
+.empty{text-align:center;padding:60px 20px;color:#5a4d6e}
+.loading-spin{width:40px;height:40px;border:3px solid rgba(199,125,255,0.2);border-top-color:#c77dff;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty .big{font-size:48px;margin-bottom:12px}
+footer{background:rgba(255,255,255,0.02);border-top:1px solid rgba(180,130,255,0.1);text-align:center;padding:24px;color:#5a4d6e;font-size:13px;margin-top:40px}
+@media(max-width:768px){.layout{grid-template-columns:1fr}.sidebar{display:none}.search-wrap{max-width:100%;width:100%}.banner-arrow{display:none}}
+</style>
+</head>
+<body>
+
+<div class="top-ad-bar">
+  <div class="ad-zone ad-top" style="max-width:728px;margin:0 auto">
+    <script>atOptions={'key':'6e057a770bbb642240e0a4a7df7b6f3a','format':'iframe','height':90,'width':728,'params':{}};</script>
+    <script src="https://www.highperformanceformat.com/6e057a770bbb642240e0a4a7df7b6f3a/invoke.js"></script>
+  </div>
+</div>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <span class="logo-icon">🎵</span>
+      <div class="logo-text">
+        <h1>Lyrics BD</h1>
+        <small>বাংলা গানের ভান্ডার</small>
+      </div>
+    </div>
+    <div class="search-wrap">
+      <input type="text" id="searchInput" placeholder="🔍 গানের নাম বা শিল্পী খুঁজুন..." oninput="filterSongs()">
+    </div>
+  </div>
+</header>
+
+<div class="page-wrap">
+
+  <!-- BANNER SLIDER -->
+  <div class="banner-wrap banner-hidden" id="bannerWrap">
+    <div class="banner-slides" id="bannerSlides"></div>
+    <button class="banner-arrow prev" onclick="slideBanner(-1)">&#8249;</button>
+    <button class="banner-arrow next" onclick="slideBanner(1)">&#8250;</button>
+    <div class="banner-dots" id="bannerDots"></div>
+  </div>
+
+
+
+  <div class="layout">
+    <main>
+      <div class="ad-zone ad-inline">
+        <script async="async" data-cfasync="false" src="https://pl29788430.effectivecpmnetwork.com/1e26585befe6b006c46fd0eaa087de2c/invoke.js"></script>
+        <div id="container-1e26585befe6b006c46fd0eaa087de2c"></div>
+      </div>
+      <div class="song-grid" id="songGrid">
+        <div class="empty"><div class="loading-spin"></div>গান লোড হচ্ছে...</div>
+      </div>
+      <div class="ad-zone ad-mid">
+        <script>atOptions={'key':'da24d3c2dcb65ce58b75c87fe0004192','format':'iframe','height':250,'width':300,'params':{}};</script>
+        <script src="https://www.highperformanceformat.com/da24d3c2dcb65ce58b75c87fe0004192/invoke.js"></script>
+      </div>
+    </main>
+    <aside class="sidebar">
+      <div class="ad-zone ad-sidebar" style="margin-bottom:18px">
+        <script>atOptions={'key':'da24d3c2dcb65ce58b75c87fe0004192','format':'iframe','height':250,'width':300,'params':{}};</script>
+        <script src="https://www.highperformanceformat.com/da24d3c2dcb65ce58b75c87fe0004192/invoke.js"></script>
+      </div>
+      <div class="sidebar-widget">
+        <h3>🔥 সর্বশেষ গান</h3>
+        <div id="popularList"></div>
+      </div>
+      <div class="ad-zone ad-sidebar" style="margin-top:18px">
+        <script src="https://pl29788432.effectivecpmnetwork.com/a3/12/7e/a3127eac8bc395bb6eeaaed364a917f8.js"></script>
+      </div>
+    </aside>
+  </div>
+
+  <div class="ad-zone ad-bottom">
+    <script>atOptions={'key':'6e057a770bbb642240e0a4a7df7b6f3a','format':'iframe','height':90,'width':728,'params':{}};</script>
+    <script src="https://www.highperformanceformat.com/6e057a770bbb642240e0a4a7df7b6f3a/invoke.js"></script>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="mTitle"></div>
+      </div>
+      <button class="close-btn" onclick="closeModalBtn()">&#10005;</button>
+    </div>
+    <div class="modal-ad" id="modalAdBox"></div>
+    <div class="modal-body">
+      <div class="lyrics-box" id="mLyrics"></div>
+    </div>
+    <div class="modal-footer">
+      <a id="mYt" class="yt-btn" href="#" target="_blank" style="display:none">&#9654; YouTube-এ শুনুন</a>
+      <button class="share-btn" onclick="copyLyrics()">&#128203; লিরিক্স কপি করুন</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p>🎵 Lyrics BD — বাংলা গানের ভান্ডার | সব অধিকার সংরক্ষিত &copy; 2025</p>
+</footer>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyDdDWlW23G-rh6HnKdIr8bA-TvwyVezuMA",
+  authDomain: "earnzone-bd.firebaseapp.com",
+  databaseURL: "https://earnzone-bd-default-rtdb.firebaseio.com",
+  projectId: "earnzone-bd",
+  storageBucket: "earnzone-bd.firebasestorage.app",
+  messagingSenderId: "681012350883",
+  appId: "1:681012350883:web:83229b7a62c87e1d259416",
+  measurementId: "G-G5PLFPNXKK"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let allSongs = [];
+let currentCat = 'সব';
+let bannerIndex = 0;
+let bannerData = [];
+let bannerTimer = null;
+
+function init() {
+  loadBanners();
+  loadLyrics();
+}
+
+// BANNER SLIDER
+function loadBanners() {
+  db.ref('banners').on('value', function(snap) {
+    bannerData = [];
+    snap.forEach(function(child) {
+      var v = child.val();
+      bannerData.push(v); // সব ব্যানার দেখাও
+    });
+    renderBannerSlider();
+  });
+}
+
+function renderBannerSlider() {
+  var wrap = document.getElementById('bannerWrap');
+  var slidesEl = document.getElementById('bannerSlides');
+  var dotsEl = document.getElementById('bannerDots');
+  clearInterval(bannerTimer);
+  if (!bannerData.length) { wrap.classList.add('banner-hidden'); return; }
+  wrap.classList.remove('banner-hidden');
+  slidesEl.innerHTML = bannerData.map(function(b) {
+    return '<div class="banner-slide"><img src="' + b.url + '" alt="' + esc(b.caption || 'ব্যানার') + '" loading="lazy"></div>';
+  }).join('');
+  dotsEl.innerHTML = bannerData.map(function(_, i) {
+    return '<div class="banner-dot' + (i === 0 ? ' active' : '') + '" onclick="goToSlide(' + i + ')"></div>';
+  }).join('');
+  bannerIndex = 0;
+  updateSlider();
+  if (bannerData.length > 1) {
+    bannerTimer = setInterval(function() {
+      bannerIndex = (bannerIndex + 1) % bannerData.length;
+      updateSlider();
+    }, 3000);
+  }
+}
+
+function updateSlider() {
+  document.getElementById('bannerSlides').style.transform = 'translateX(-' + (bannerIndex * 100) + '%)';
+  document.querySelectorAll('.banner-dot').forEach(function(d, i) {
+    d.classList.toggle('active', i === bannerIndex);
+  });
+}
+
+function slideBanner(dir) {
+  clearInterval(bannerTimer);
+  bannerIndex = (bannerIndex + dir + bannerData.length) % bannerData.length;
+  updateSlider();
+  bannerTimer = setInterval(function() { bannerIndex = (bannerIndex + 1) % bannerData.length; updateSlider(); }, 3000);
+}
+
+function goToSlide(i) {
+  clearInterval(bannerTimer);
+  bannerIndex = i;
+  updateSlider();
+  bannerTimer = setInterval(function() { bannerIndex = (bannerIndex + 1) % bannerData.length; updateSlider(); }, 3000);
+}
+
+// LYRICS
+var lyricsLoaded = false;
+var loadTimeout = null;
+
+function loadLyrics() {
+  var grid = document.getElementById('songGrid');
+  grid.innerHTML = '<div class="empty"><div class="big">🎵</div>গান লোড হচ্ছে...</div>';
+
+  loadTimeout = setTimeout(function() {
+    if (!lyricsLoaded) {
+      grid.innerHTML = '<div class="empty"><div class="big">😕</div>'
+        + '<p style="color:#c0b0d8;margin-bottom:16px">গান লোড হয়নি।<br><small style="color:#7b6a99">ইন্টারনেট সংযোগ চেক করুন।</small></p>'
+        + '<button onclick="retryLoad()" style="padding:10px 24px;background:linear-gradient(135deg,#7b2fff,#c77dff);border:none;border-radius:8px;color:#fff;font-size:14px;font-family:inherit;cursor:pointer">🔄 আবার চেষ্টা করুন</button>'
+        + '</div>';
+    }
+  }, 8000);
+
+  db.ref('lyrics').on('value', function(snap) {
+    clearTimeout(loadTimeout);
+    lyricsLoaded = true;
+    allSongs = [];
+    snap.forEach(function(child) { allSongs.push(Object.assign({ fireKey: child.key }, child.val())); });
+    renderGrid();
+    renderPopular();
+  }, function(err) {
+    clearTimeout(loadTimeout);
+    grid.innerHTML = '<div class="empty"><div class="big">⚠️</div>'
+      + '<p style="color:#ff9090;margin-bottom:16px">ডেটা লোড ব্যর্থ হয়েছে।<br><small style="color:#7b6a99">' + (err.message || 'অজানা ত্রুটি') + '</small></p>'
+      + '<button onclick="retryLoad()" style="padding:10px 24px;background:linear-gradient(135deg,#7b2fff,#c77dff);border:none;border-radius:8px;color:#fff;font-size:14px;font-family:inherit;cursor:pointer">🔄 আবার চেষ্টা করুন</button>'
+      + '</div>';
+  });
+}
+
+function retryLoad() {
+  lyricsLoaded = false;
+  db.ref('lyrics').off();
+  loadLyrics();
+}
+
+function filterSongs() { renderGrid(); }
+
+function getFiltered() {
+  var q = document.getElementById('searchInput').value.toLowerCase();
+  var list = allSongs.slice().reverse();
+  if (q) list = list.filter(function(x) { return (x.title || '').toLowerCase().indexOf(q) > -1; });
+  return list;
+}
+
+function renderGrid() {
+  var songs = getFiltered();
+  var grid = document.getElementById('songGrid');
+  if (!songs.length) { grid.innerHTML = '<div class="empty"><div class="big">🔍</div>কোনো গান পাওয়া যায়নি।</div>'; return; }
+  grid.innerHTML = songs.map(function(s) {
+    var snippet = (s.lyrics || '').split('\n').slice(0, 2).join(' ');
+    return '<div class="song-card" onclick="openSong(\'' + s.fireKey + '\')">'
+      + '<div class="song-title">' + esc(s.title) + '</div>'
+      + '<div class="song-snippet">' + esc(snippet) + '</div>'
+      + '<div class="song-card-footer"><span class="song-date">' + (s.date || '') + '</span><span class="read-btn">লিরিক্স পড়ুন →</span></div>'
+      + '</div>';
+  }).join('');
+}
+
+function renderPopular() {
+  var list = allSongs.slice(-5).reverse();
+  var el = document.getElementById('popularList');
+  if (!list.length) { el.innerHTML = '<p style="color:#5a4d6e;font-size:13px">লোড হচ্ছে...</p>'; return; }
+  el.innerHTML = list.map(function(s, i) {
+    return '<div class="popular-item" onclick="openSong(\'' + s.fireKey + '\')">'
+      + '<span class="pop-num">0' + (i + 1) + '</span>'
+      + '<div class="pop-info"><div class="pop-title">' + esc(s.title) + '</div></div>'
+      + '</div>';
+  }).join('');
+}
+
+function openSong(key) {
+  var s = allSongs.find(function(x) { return x.fireKey === key; });
+  if (!s) return;
+  document.getElementById('mTitle').textContent = s.title;
+  document.getElementById('mLyrics').textContent = s.lyrics;
+  var yt = document.getElementById('mYt');
+  if (s.yt) { yt.href = s.yt; yt.style.display = 'inline-flex'; } else { yt.style.display = 'none'; }
+  document.getElementById('modalOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  loadModalAd();
+}
+
+function loadModalAd() {
+  var box = document.getElementById('modalAdBox');
+  box.innerHTML = '';
+  var iframe = document.createElement('iframe');
+  iframe.style.width = '100%';
+  iframe.style.height = '90px';
+  iframe.style.border = 'none';
+  iframe.style.display = 'block';
+  iframe.setAttribute('scrolling', 'no');
+  box.appendChild(iframe);
+  var doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(
+    '<!DOCTYPE html><html><head><style>body{margin:0;padding:0;display:flex;align-items:center;justify-content:center;overflow:hidden;background:transparent}</style></head><body>' +
+    '<script>atOptions={"key":"6e057a770bbb642240e0a4a7df7b6f3a","format":"iframe","height":90,"width":728,"params":{}};</' + 'script>' +
+    '<script src="https://www.highperformanceformat.com/6e057a770bbb642240e0a4a7df7b6f3a/invoke.js"></' + 'script>' +
+    '</body></html>'
+  );
+  doc.close();
+}
+
+function closeModal(e) { if (e.target === document.getElementById('modalOverlay')) closeModalBtn(); }
+function closeModalBtn() { document.getElementById('modalOverlay').classList.remove('open'); document.body.style.overflow = ''; }
+function copyLyrics() { navigator.clipboard.writeText(document.getElementById('mLyrics').textContent).then(function() { alert('লিরিক্স কপি হয়েছে!'); }); }
+function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+init();
+</script>
+</body>
+</html>
