@@ -312,18 +312,35 @@ function getFiltered() {
   return list;
 }
 
+function createAdBlock() {
+  var wrap = document.createElement('div');
+  wrap.className = 'ad-zone ad-top';
+  wrap.style.cssText = 'max-width:728px;margin:14px auto;grid-column:1/-1';
+  var s1 = document.createElement('script');
+  s1.text = "atOptions={'key':'6e057a770bbb642240e0a4a7df7b6f3a','format':'iframe','height':90,'width':728,'params':{}};";
+  var s2 = document.createElement('script');
+  s2.src = 'https://www.highperformanceformat.com/6e057a770bbb642240e0a4a7df7b6f3a/invoke.js';
+  wrap.appendChild(s1);
+  wrap.appendChild(s2);
+  return wrap;
+}
+
 function renderGrid() {
   var songs = getFiltered();
   var grid = document.getElementById('songGrid');
+  grid.innerHTML = '';
   if (!songs.length) { grid.innerHTML = '<div class="empty"><div class="big">🔍</div>কোনো গান পাওয়া যায়নি।</div>'; return; }
-  grid.innerHTML = songs.map(function(s) {
+  songs.forEach(function(s, i) {
+    if (i > 0 && i % 3 === 0) { grid.appendChild(createAdBlock()); }
     var snippet = (s.lyrics || '').split('\n').slice(0, 2).join(' ');
-    return '<div class="song-card" onclick="openSong(\'' + s.fireKey + '\')">'
-      + '<div class="song-title">' + esc(s.title) + '</div>'
+    var card = document.createElement('div');
+    card.className = 'song-card';
+    card.onclick = function() { openSong(s.fireKey); };
+    card.innerHTML = '<div class="song-title">' + esc(s.title) + '</div>'
       + '<div class="song-snippet">' + esc(snippet) + '</div>'
-      + '<div class="song-card-footer"><span class="song-date">' + (s.date || '') + '</span><span class="read-btn">লিরিক্স পড়ুন →</span></div>'
-      + '</div>';
-  }).join('');
+      + '<div class="song-card-footer"><span class="song-date">' + (s.date || '') + '</span><span class="read-btn">লিরিক্স পড়ুন →</span></div>';
+    grid.appendChild(card);
+  });
 }
 
 function renderPopular() {
