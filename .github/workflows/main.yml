@@ -1,10 +1,14 @@
 name: Build VedaNova AI APK (Testing)
 
 # ============================================================================
-#  VedaNova AI — Debug APK Build Workflow (Fixed v2)
+#  VedaNova AI — Debug APK Build Workflow (Fixed v3)
 #  উদ্দেশ্য: repo-তে zip আকারে কোড থাকলেও, বা সরাসরি extract করা থাকলেও —
 #  দুই ক্ষেত্রেই স্বয়ংক্রিয়ভাবে প্রজেক্ট খুঁজে বের করে টেস্টের জন্য
 #  একটা Debug APK বানিয়ে দেবে।
+#
+#  v3 পরিবর্তন: cancel-in-progress বন্ধ করা হয়েছে, যাতে নতুন পুশ দিলে
+#  আগের চলমান বিল্ড মাঝপথে "canceled" হয়ে না যায়। বদলে নতুন রানটা
+#  আগেরটা শেষ হওয়া পর্যন্ত লাইনে অপেক্ষা করবে (queued)।
 # ============================================================================
 
 on:
@@ -16,7 +20,7 @@ on:
 
 concurrency:
   group: build-apk-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false   # আগের বিল্ড চলাকালীন নতুন পুশে সেটা আর কাটা যাবে না
 
 jobs:
   build:
@@ -121,4 +125,4 @@ jobs:
           path: ${{ env.PROJECT_ROOT }}/app/build/reports/tests/
           if-no-files-found: ignore
           retention-days: 7
-          
+
