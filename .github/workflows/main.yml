@@ -1,9 +1,10 @@
 name: Build VedaNova AI APK (Testing)
 
 # ============================================================================
-#  VedaNova AI — Debug APK Build Workflow
-#  উদ্দেশ্য: প্রতিবার কোড push/PR হলে অথবা ম্যানুয়ালি চালালে একটি টেস্টযোগ্য
-#  Debug APK বানিয়ে GitHub Actions Artifacts থেকে ডাউনলোড করার ব্যবস্থা করা।
+#  VedaNova AI — Debug APK Build Workflow (Fixed v2)
+#  উদ্দেশ্য: repo-তে zip আকারে কোড থাকলেও, বা সরাসরি extract করা থাকলেও —
+#  দুই ক্ষেত্রেই স্বয়ংক্রিয়ভাবে প্রজেক্ট খুঁজে বের করে টেস্টের জন্য
+#  একটা Debug APK বানিয়ে দেবে।
 # ============================================================================
 
 on:
@@ -11,9 +12,8 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
-  workflow_dispatch: {}   # চাইলে GitHub Actions ট্যাব থেকে ম্যানুয়ালি "Run workflow" করা যাবে
+  workflow_dispatch: {}   # Actions ট্যাব থেকে ম্যানুয়ালি "Run workflow" করা যাবে
 
-# একই ব্রাঞ্চে নতুন push এলে পুরনো চলমান বিল্ড বাতিল হয়ে যাবে (সময় বাঁচাতে)
 concurrency:
   group: build-apk-${{ github.ref }}
   cancel-in-progress: true
@@ -28,71 +28,97 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2) JDK 17 সেটআপ করা (AGP 9.x / Gradle 9.x এর জন্য প্রয়োজন)
+      # 2) repo-তে zip ফাইল থাকলে সেটা নিজে থেকে extract করা,
+      #    তারপর যেখানে settings.gradle.kts আছে সেই ফোল্ডারকেই
+      #    আসল প্রজেক্ট রুট হিসেবে বের করা (nested ফোল্ডার হলেও কাজ করবে)
+      - name: Locate or extract Android project
+        run: |
+          set -e
+
+          ZIP_FILE=$(find . -maxdepth 2 -iname "*.zip" | head -n 1 || true)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "📦 Zip পাওয়া গেছে: $ZIP_FILE — extract করা হচ্ছে..."
+            mkdir -p _extracted
+            unzip -o "$ZIP_FILE" -d _extracted > /dev/null
+          fi
+
+          PROJECT_ROOT=$(find . -maxdepth 5 -iname "settings.gradle.kts" \
+            -not -path "*/node_modules/*" | head -n 1 | xargs -r dirname)
+
+          if [ -z "$PROJECT_ROOT" ]; then
+            echo "::error::settings.gradle.kts খুঁজে পাওয়া যায়নি। রিপোতে Android প্রজেক্টের আসল কোড আছে কিনা এবং zip ঠিকভাবে আপলোড হয়েছে কিনা চেক করুন।"
+            exit 1
+          fi
+
+          echo "✅ প্রজেক্ট রুট পাওয়া গেছে: $PROJECT_ROOT"
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
+
+      # 3) JDK 17 সেটআপ (AGP 9.x / Gradle 9.x এর জন্য প্রয়োজন)
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: "temurin"
           java-version: "17"
-          cache: "gradle"
 
-      # 3) Android SDK সেটআপ করা (compileSdk 36 পর্যন্ত সাপোর্ট)
+      # 4) Android SDK সেটআপ (compileSdk 36 পর্যন্ত সাপোর্ট)
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # 4) গোপন Gemini API Key দিয়ে .env ফাইল বানানো
-      #    GitHub Repo -> Settings -> Secrets and variables -> Actions
-      #    এ গিয়ে GEMINI_API_KEY নামে একটি secret যোগ করে নিন।
+      # 5) গোপন Gemini API Key দিয়ে .env ফাইল বানানো
+      #    Repo -> Settings -> Secrets and variables -> Actions
+      #    এ গিয়ে GEMINI_API_KEY নামে secret যোগ করে নিন।
       - name: Create .env file
-        run: |
-          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
-          cat .env.example >> /dev/null || true
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
 
-      # 5) ডিবাগ কিস্টোর তৈরি করা (রিপোতে debug.keystore গিটইগনোর করা থাকে,
-      #    তাই CI-তে প্রতিবার স্ট্যান্ডার্ড Android ডিবাগ কি জেনারেট করা হচ্ছে)
+      # 6) ডিবাগ কিস্টোর তৈরি করা (গিটে debug.keystore সাধারণত gitignore করা থাকে)
       - name: Generate debug keystore
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
-      # 6) Gradle Wrapper জেনারেট করা (রিপোতে gradlew স্ক্রিপ্ট নেই বলে ধরে নেওয়া হচ্ছে;
-      #    ইতিমধ্যে gradlew থাকলে এই স্টেপ নিজে থেকেই স্কিপের মতো কাজ করবে)
+      # 7) Gradle Wrapper জেনারেট করা (না থাকলে)
       - name: Ensure Gradle Wrapper exists
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: |
           if [ ! -f "./gradlew" ]; then
             gradle wrapper --gradle-version 9.3.1
           fi
           chmod +x ./gradlew
 
-      # 7) Gradle ক্যাশ ও বিল্ড স্পিড-আপ
+      # 8) Gradle ক্যাশ ও বিল্ড স্পিড-আপ
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # 8) Debug APK বিল্ড করা (টেস্টিং এর জন্য release লাগবে না)
+      # 9) Debug APK বিল্ড করা
       - name: Build debug APK
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: ./gradlew assembleDebug --stacktrace
 
-      # 9) তৈরি হওয়া APK খুঁজে বের করা ও Artifact হিসেবে আপলোড করা
+      # 10) তৈরি হওয়া APK Artifact হিসেবে আপলোড করা
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: vedanova-ai-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: ${{ env.PROJECT_ROOT }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
 
-      # 10) (ঐচ্ছিক) ইউনিট টেস্ট রিপোর্ট আপলোড, ফেইল হলেও বিল্ড লগ দেখতে সুবিধা হবে
+      # 11) (ঐচ্ছিক) ইউনিট টেস্ট রিপোর্ট, ফেইল হলেও কারণ বোঝা সহজ হবে
       - name: Upload test reports (optional)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-reports
-          path: app/build/reports/tests/
+          path: ${{ env.PROJECT_ROOT }}/app/build/reports/tests/
           if-no-files-found: ignore
           retention-days: 7
           
