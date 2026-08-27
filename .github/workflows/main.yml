@@ -1,0 +1,165 @@
+name: Build Debug APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: {}
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ──
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. ZIP থাকলে extract, project root বের করো ──
+      - name: Locate or extract Android project
+        run: |
+          set -e
+          ZIP_FILE=$(find . -maxdepth 2 -iname "*.zip" | head -n 1 || true)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "📦 ZIP পাওয়া গেছে: $ZIP_FILE"
+            mkdir -p _extracted
+            unzip -o "$ZIP_FILE" -d _extracted > /dev/null
+          fi
+
+          PROJECT_ROOT=$(find . -maxdepth 5 -iname "settings.gradle.kts" \
+            -not -path "*/node_modules/*" | head -n 1 | xargs -r dirname)
+
+          if [ -z "$PROJECT_ROOT" ]; then
+            echo "::error::settings.gradle.kts খুঁজে পাওয়া যায়নি!"
+            exit 1
+          fi
+
+          echo "✅ Project root: $PROJECT_ROOT"
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
+
+          # App package name বের করো
+          PKG=$(grep -r "applicationId" "$PROJECT_ROOT/app/build.gradle.kts" \
+            | grep -oP '(?<=\")[^\"]+(?=\")' | head -n 1 || echo "com.example.app")
+          echo "📦 Package: $PKG"
+          echo "APP_PACKAGE=$PKG" >> "$GITHUB_ENV"
+
+      # ── 3. JDK 21 — AGP 9.x এর জন্য আবশ্যক ──
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      # ── 4. Android SDK 36 ──
+      - name: Set up Android SDK 36
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "platform-tools" 2>/dev/null || true
+          echo "✅ Android SDK 36 ready"
+
+      # ── 5. Gradle cache ──
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      # ── 6. .env ফাইল ──
+      - name: Create .env file
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: |
+          if [ -f ".env.example" ]; then
+            cp .env.example .env
+          else
+            echo "GEMINI_API_KEY=dummy" > .env
+          fi
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
+          fi
+
+      # ── 7. google-services.json — package name অটো detect ──
+      - name: Create google-services.json
+        working-directory: ${{ env.PROJECT_ROOT }}/app
+        run: |
+          PKG="${{ env.APP_PACKAGE }}"
+          echo "📦 google-services.json বানাচ্ছি package: $PKG"
+          cat > google-services.json << EOF
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "dummy-project-id",
+              "storage_bucket": "dummy-project-id.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "$PKG"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "dummy_api_key_for_testing" }],
+                "services": {
+                  "appinvite_service": { "other_platform_oauth_client": [] }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          echo "✅ google-services.json তৈরি হয়েছে"
+
+      # ── 8. Debug Keystore ──
+      - name: Generate debug keystore
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: |
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            echo "✅ debug.keystore তৈরি হয়েছে"
+          fi
+
+      # ── 9. Gradlew permission ──
+      - name: Ensure gradlew is executable
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            gradle wrapper --gradle-version 9.3.1
+          fi
+          chmod +x ./gradlew
+
+      # ── 10. Build APK ──
+      - name: Build Debug APK
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
+
+      # ── 11. APK Upload ──
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: ${{ env.PROJECT_ROOT }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      # ── 12. Error report ──
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: ${{ env.PROJECT_ROOT }}/app/build/reports/
+          if-no-files-found: ignore
+          retention-days: 7
+          
