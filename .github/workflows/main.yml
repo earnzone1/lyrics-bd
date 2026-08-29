@@ -22,8 +22,23 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: 📋 Check project files
+        run: |
+          echo "=== Root files ==="
+          ls -la
+          echo "=== Checking gradlew ==="
+          find . -name "gradlew" -type f 2>/dev/null || echo "gradlew NOT FOUND"
+          find . -name "build.gradle" -type f 2>/dev/null || echo "build.gradle NOT FOUND"
+
       - name: 🔑 Grant Gradle execute permission
-        run: chmod +x gradlew
+        run: |
+          GRADLEW_PATH=$(find . -name "gradlew" -type f | head -1)
+          if [ -z "$GRADLEW_PATH" ]; then
+            echo "❌ gradlew not found! Android project files missing."
+            exit 1
+          fi
+          chmod +x "$GRADLEW_PATH"
+          echo "✅ Found gradlew at: $GRADLEW_PATH"
 
       - name: 🔧 Cache Gradle packages
         uses: actions/cache@v4
@@ -36,11 +51,16 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: 🏗️ Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          GRADLEW_PATH=$(find . -name "gradlew" -type f | head -1)
+          PROJ_DIR=$(dirname "$GRADLEW_PATH")
+          cd "$PROJ_DIR"
+          ./gradlew assembleDebug --stacktrace
 
       - name: 📦 Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: HinduDharmaAI-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            **/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
