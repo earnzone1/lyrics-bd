@@ -1,165 +1,227 @@
-name: Build Debug APK
+name: Build Hindu Dharma AI APK
 
 on:
   push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch: {}
-
-concurrency:
-  group: build-apk-${{ github.ref }}
-  cancel-in-progress: false
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    name: Build Debug APK
     runs-on: ubuntu-latest
 
     steps:
-      # ── 1. Checkout ──
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── 2. ZIP থাকলে extract, project root বের করো ──
-      - name: Locate or extract Android project
-        run: |
-          set -e
-          ZIP_FILE=$(find . -maxdepth 2 -iname "*.zip" | head -n 1 || true)
-          if [ -n "$ZIP_FILE" ]; then
-            echo "📦 ZIP পাওয়া গেছে: $ZIP_FILE"
-            mkdir -p _extracted
-            unzip -o "$ZIP_FILE" -d _extracted > /dev/null
-          fi
-
-          PROJECT_ROOT=$(find . -maxdepth 5 -iname "settings.gradle.kts" \
-            -not -path "*/node_modules/*" | head -n 1 | xargs -r dirname)
-
-          if [ -z "$PROJECT_ROOT" ]; then
-            echo "::error::settings.gradle.kts খুঁজে পাওয়া যায়নি!"
-            exit 1
-          fi
-
-          echo "✅ Project root: $PROJECT_ROOT"
-          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
-
-          # App package name বের করো
-          PKG=$(grep -r "applicationId" "$PROJECT_ROOT/app/build.gradle.kts" \
-            | grep -oP '(?<=\")[^\"]+(?=\")' | head -n 1 || echo "com.example.app")
-          echo "📦 Package: $PKG"
-          echo "APP_PACKAGE=$PKG" >> "$GITHUB_ENV"
-
-      # ── 3. JDK 21 — AGP 9.x এর জন্য আবশ্যক ──
-      - name: Set up JDK 21
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: "temurin"
-          java-version: "21"
+          java-version: '17'
+          distribution: 'temurin'
 
-      # ── 4. Android SDK 36 ──
-      - name: Set up Android SDK 36
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create Project Structure
         run: |
-          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "platform-tools" 2>/dev/null || true
-          echo "✅ Android SDK 36 ready"
+          mkdir -p app/src/main/java/com/hindudharma/ai
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+          mkdir -p gradle/wrapper
 
-      # ── 5. Gradle cache ──
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      # ── 6. .env ফাইল ──
-      - name: Create .env file
-        working-directory: ${{ env.PROJECT_ROOT }}
+      - name: Create HTML App
         run: |
-          if [ -f ".env.example" ]; then
-            cp .env.example .env
-          else
-            echo "GEMINI_API_KEY=dummy" > .env
-          fi
-          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
-            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
-          fi
-
-      # ── 7. google-services.json — package name অটো detect ──
-      - name: Create google-services.json
-        working-directory: ${{ env.PROJECT_ROOT }}/app
-        run: |
-          PKG="${{ env.APP_PACKAGE }}"
-          echo "📦 google-services.json বানাচ্ছি package: $PKG"
-          cat > google-services.json << EOF
-          {
-            "project_info": {
-              "project_number": "000000000000",
-              "project_id": "dummy-project-id",
-              "storage_bucket": "dummy-project-id.appspot.com"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
-                  "android_client_info": {
-                    "package_name": "$PKG"
-                  }
-                },
-                "oauth_client": [],
-                "api_key": [{ "current_key": "dummy_api_key_for_testing" }],
-                "services": {
-                  "appinvite_service": { "other_platform_oauth_client": [] }
-                }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          EOF
-          echo "✅ google-services.json তৈরি হয়েছে"
-
-      # ── 8. Debug Keystore ──
-      - name: Generate debug keystore
-        working-directory: ${{ env.PROJECT_ROOT }}
-        run: |
-          if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -v \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-            echo "✅ debug.keystore তৈরি হয়েছে"
-          fi
-
-      # ── 9. Gradlew permission ──
-      - name: Ensure gradlew is executable
-        working-directory: ${{ env.PROJECT_ROOT }}
-        run: |
-          if [ ! -f "./gradlew" ]; then
-            gradle wrapper --gradle-version 9.3.1
-          fi
-          chmod +x ./gradlew
-
-      # ── 10. Build APK ──
-      - name: Build Debug APK
-        working-directory: ${{ env.PROJECT_ROOT }}
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
-
-      # ── 11. APK Upload ──
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-apk
-          path: ${{ env.PROJECT_ROOT }}/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      # ── 12. Error report ──
-      - name: Upload build reports on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-reports
-          path: ${{ env.PROJECT_ROOT }}/app/build/reports/
-          if-no-files-found: ignore
-          retention-days: 7
-          
+          cat > app/src/main/assets/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html lang="bn">
+          <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>হিন্দু ধর্ম AI</title>
+          <style>
+          *{margin:0;padding:0;box-sizing:border-box}
+          body{font-family:sans-serif;background:#FFF8E7;color:#1A0800}
+          header{background:linear-gradient(135deg,#8B1A1A,#2D0F00);padding:24px 16px;text-align:center;border-bottom:3px solid #D4A017}
+          .om{font-size:48px;color:#FFD700;display:block;animation:glow 3s infinite}
+          @keyframes glow{0%,100%{text-shadow:0 0 20px rgba(255,215,0,0.4)}50%{text-shadow:0 0 40px rgba(255,215,0,0.9)}}
+          h1{color:#FFD700;font-size:22px;margin:6px 0 4px}
+          .sub{color:rgba(255,215,0,0.7);font-size:12px}
+          nav{background:linear-gradient(90deg,#2D0F00,#E8620A,#2D0F00);padding:10px;display:flex;gap:6px;overflow-x:auto;border-bottom:2px solid #D4A017}
+          nav::-webkit-scrollbar{display:none}
+          .nb{background:rgba(255,255,255,0.12);border:1px solid rgba(212,160,23,0.4);color:#FFF8E7;padding:7px 14px;border-radius:20px;font-size:13px;cursor:pointer;white-space:nowrap;transition:all 0.2s}
+          .nb.active,.nb:hover{background:#D4A017;color:#2D0F00;font-weight:700}
+          main{padding:16px;max-width:700px;margin:0 auto}
+          .page{display:none}.page.active{display:block}
+          .hero{background:linear-gradient(135deg,#8B1A1A,#C44F00);border-radius:16px;padding:24px;text-align:center;margin-bottom:16px;border:2px solid #D4A017}
+          .hero h2{color:#FFD700;font-size:20px;margin-bottom:8px}
+          .hero p{color:rgba(255,248,231,0.85);font-size:13px;line-height:1.7}
+          .verse{background:linear-gradient(135deg,#FFF3D0,#F5E6C8);border:2px solid #D4A017;border-radius:12px;padding:16px;margin-bottom:16px;text-align:center}
+          .vl{font-size:11px;color:#E8620A;font-weight:700;letter-spacing:2px;margin-bottom:8px}
+          .vt{font-size:16px;color:#8B1A1A;line-height:1.8}
+          .vm{font-size:12px;color:#5C2E00;margin-top:8px;font-style:italic}
+          .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
+          .card{background:white;border:2px solid #F5E6C8;border-radius:14px;padding:16px 12px;text-align:center;cursor:pointer;transition:all 0.2s}
+          .card:hover{border-color:#E8620A;transform:translateY(-3px)}
+          .ci{font-size:30px;margin-bottom:8px;display:block}
+          .card h3{font-size:14px;color:#8B1A1A;font-weight:700;margin-bottom:4px}
+          .card p{font-size:11px;color:#5C2E00;line-height:1.5}
+          .ai-hdr{background:linear-gradient(135deg,#8B1A1A,#2D0F00);border-radius:14px;padding:18px;text-align:center;margin-bottom:16px;border:2px solid #D4A017}
+          .ai-hdr h2{color:#FFD700;font-size:20px;margin-bottom:4px}
+          .ai-hdr p{font-size:12px;color:rgba(255,248,231,0.75)}
+          .cats{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:16px}
+          .cats::-webkit-scrollbar{display:none}
+          .ct{background:white;border:2px solid #F5E6C8;border-radius:10px;padding:10px 14px;cursor:pointer;flex-shrink:0;text-align:center;transition:all 0.2s}
+          .ct.active{background:linear-gradient(135deg,#8B1A1A,#E8620A);border-color:#D4A017;color:white}
+          .ct .ti{font-size:22px;display:block}
+          .ct .tl{font-size:11px;margin-top:3px;font-weight:600}
+          .ct.active .tl{color:#FFD700}
+          .ibox{background:white;border:2px solid #F5E6C8;border-radius:14px;padding:16px;margin-bottom:14px}
+          .qps{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+          .qb{background:#F5E6C8;border:1px solid #D4A017;border-radius:20px;padding:5px 12px;font-size:12px;color:#8B1A1A;cursor:pointer}
+          .qb:hover{background:#E8620A;color:white}
+          textarea{width:100%;border:2px solid #F5E6C8;border-radius:10px;padding:12px;font-size:14px;color:#1A0800;resize:none;outline:none;background:#FFF8E7;line-height:1.7}
+          textarea:focus{border-color:#E8620A}
+          .sbtn{width:100%;background:linear-gradient(135deg,#8B1A1A,#E8620A);border:none;border-radius:10px;padding:13px;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:8px}
+          .sbtn:disabled{opacity:0.6;cursor:not-allowed}
+          .rbox{background:white;border:2px solid #F5E6C8;border-radius:14px;overflow:hidden;display:none;margin-bottom:14px}
+          .rbox.on{display:block}
+          .rhdr{background:linear-gradient(90deg,#8B1A1A,#C44F00);padding:10px 16px;display:flex;align-items:center;gap:8px}
+          .rhdr span{color:#FFD700;font-size:18px}
+          .rhdr h4{color:white;font-size:13px}
+          .rc{padding:16px;font-size:14px;line-height:1.9;color:#1A0800;white-space:pre-wrap}
+          .dots{display:flex;gap:6px;align-items:center;padding:16px;justify-content:center}
+          .dot{width:8px;height:8px;border-radius:50%;background:#E8620A;animation:bounce 1.2s infinite}
+          .dot:nth-child(2){animation-delay:0.2s}.dot:nth-child(3){animation-delay:0.4s}
+          @keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:0.5}30%{transform:translateY(-10px);opacity:1}}
+          .mc{background:linear-gradient(135deg,#FFF3D0,white);border:2px solid #D4A017;border-radius:14px;padding:20px 16px;margin-bottom:14px;text-align:center}
+          .mt{font-size:12px;color:#E8620A;font-weight:700;letter-spacing:2px;margin-bottom:12px}
+          .mx{font-size:17px;color:#8B1A1A;line-height:2;padding:12px;background:rgba(255,215,0,0.1);border-radius:8px;margin-bottom:12px}
+          .mm{font-size:13px;color:#5C2E00;line-height:1.7}
+          .fi{background:white;border-radius:12px;padding:14px;margin-bottom:10px;border-left:4px solid #E8620A;display:flex;gap:12px}
+          .fic{font-size:28px;flex-shrink:0}
+          .fn{font-size:15px;font-weight:700;color:#8B1A1A;margin-bottom:4px}
+          .fd{font-size:12px;color:#5C2E00;line-height:1.6}
+          .fdt{font-size:11px;color:#E8620A;font-weight:700;margin-top:5px;background:#F5E6C8;display:inline-block;padding:2px 8px;border-radius:10px}
+          .pg{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+          .pi{background:white;border:2px solid #F5E6C8;border-radius:12px;padding:14px 12px;text-align:center}
+          .pic{font-size:24px;display:block;margin-bottom:6px}
+          .pil{font-size:11px;color:#E8620A;font-weight:700}
+          .piv{font-size:15px;color:#1A0800;font-weight:600;margin-top:4px}
+          footer{background:#2D0F00;text-align:center;padding:16px;margin-top:24px}
+          footer p{font-size:12px;color:rgba(255,215,0,0.6)}
+          </style>
+          </head>
+          <body>
+          <header>
+          <span class="om">ॐ</span>
+          <h1>হিন্দু ধর্ম AI</h1>
+          <p class="sub">ঈশ্বরের আলোয় জ্ঞানের সন্ধান</p>
+          </header>
+          <nav>
+          <button class="nb active" onclick="showPage('home',this)">🏠 হোম</button>
+          <button class="nb" onclick="showPage('ai',this)">🤖 AI সহায়তা</button>
+          <button class="nb" onclick="showPage('mantra',this)">📿 মন্ত্র</button>
+          <button class="nb" onclick="showPage('festival',this)">🎉 উৎসব</button>
+          <button class="nb" onclick="showPage('panchang',this)">📅 পঞ্চাঙ্গ</button>
+          <button class="nb" onclick="showPage('prayer',this)">🙏 প্রার্থনা</button>
+          </nav>
+          <main>
+          <div id="page-home" class="page active">
+          <div class="hero"><h2>🌸 স্বাগতম ভক্তগণ 🌸</h2><p>হিন্দু ধর্মের বিভিন্ন বিষয়ে AI-এর সাহায্যে জানুন।</p></div>
+          <div class="verse"><div class="vl">✦ আজকের শ্লোক ✦</div><div class="vt">সর্বে ভবন্তু সুখিনঃ।<br>সর্বে সন্তু নিরামায়াঃ।</div><div class="vm">সকলে সুখী হোক। সকলে নীরোগ হোক। — উপনিষদ</div></div>
+          <div class="grid">
+          <div class="card" onclick="showPage('ai',document.querySelectorAll('nav .nb')[1])"><span class="ci">🤖</span><h3>AI সহায়তা</h3><p>যেকোনো ধর্মীয় প্রশ্নের উত্তর</p></div>
+          <div class="card" onclick="showPage('mantra',document.querySelectorAll('nav .nb')[2])"><span class="ci">📿</span><h3>মন্ত্র জপ</h3><p>মন্ত্র ও তার অর্থ</p></div>
+          <div class="card" onclick="showPage('festival',document.querySelectorAll('nav .nb')[3])"><span class="ci">🎊</span><h3>উৎসব তথ্য</h3><p>হিন্দু উৎসবের তালিকা</p></div>
+          <div class="card" onclick="showPage('panchang',document.querySelectorAll('nav .nb')[4])"><span class="ci">📅</span><h3>পঞ্চাঙ্গ</h3><p>তিথি নক্ষত্র শুভ সময়</p></div>
+          <div class="card" onclick="showPage('prayer',document.querySelectorAll('nav .nb')[5])"><span class="ci">🙏</span><h3>প্রার্থনা</h3><p>ব্যক্তিগত প্রার্থনা তৈরি</p></div>
+          <div class="card" onclick="showPage('ai',document.querySelectorAll('nav .nb')[1])"><span class="ci">📖</span><h3>গীতা জ্ঞান</h3><p>ভগবদ্গীতার শিক্ষা</p></div>
+          </div>
+          </div>
+          <div id="page-ai" class="page">
+          <div class="ai-hdr"><h2>🤖 AI ধর্মীয় সহায়তা</h2><p>বাংলায় যেকোনো ধর্মীয় প্রশ্ন করুন</p></div>
+          <div class="cats">
+          <div class="ct active" onclick="setCat('general',this)"><span class="ti">🕉️</span><span class="tl">সাধারণ</span></div>
+          <div class="ct" onclick="setCat('gita',this)"><span class="ti">📖</span><span class="tl">গীতা</span></div>
+          <div class="ct" onclick="setCat('deity',this)"><span class="ti">🙏</span><span class="tl">দেবদেবী</span></div>
+          <div class="ct" onclick="setCat('ritual',this)"><span class="ti">🪔</span><span class="tl">পূজা পদ্ধতি</span></div>
+          <div class="ct" onclick="setCat('mantra',this)"><span class="ti">📿</span><span class="tl">মন্ত্র অর্থ</span></div>
+          <div class="ct" onclick="setCat('vastu',this)"><span class="ti">🏠</span><span class="tl">বাস্তু</span></div>
+          </div>
+          <div class="ibox">
+          <div class="qps" id="qps">
+          <button class="qb" onclick="setP(this.textContent)">কৃষ্ণ কে?</button>
+          <button class="qb" onclick="setP(this.textContent)">গায়ত্রী মন্ত্রের অর্থ</button>
+          <button class="qb" onclick="setP(this.textContent)">দুর্গা পূজার নিয়ম</button>
+          <button class="qb" onclick="setP(this.textContent)">কর্ম কি?</button>
+          </div>
+          <textarea id="ui" rows="4" placeholder="এখানে আপনার প্রশ্ন লিখুন..."></textarea>
+          <button class="sbtn" id="sb" onclick="askAI()"><span>🙏</span> AI-কে জিজ্ঞেস করুন</button>
+          </div>
+          <div class="rbox" id="rb"><div class="rhdr"><span>🔱</span><h4>AI উত্তর</h4></div><div id="ld" class="dots" style="display:none"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div><div class="rc" id="rc"></div></div>
+          </div>
+          <div id="page-mantra" class="page">
+          <div class="ai-hdr"><h2>📿 পবিত্র মন্ত্র সংগ্রহ</h2><p>মন্ত্র জপ করুন মন শান্ত করুন</p></div>
+          <div class="mc"><div class="mt">🌟 মহামৃত্যুঞ্জয় মন্ত্র</div><div class="mx">ওঁ ত্র্যম্বকং যজামহে<br>সুগন্ধিং পুষ্টিবর্ধনম্।<br>উর্বারুকমিব বন্ধনান্<br>মৃত্যোর্মুক্ষীয় মামৃতাৎ।।</div><div class="mm">হে তিন নয়নের মহাদেব! মৃত্যু বন্ধন থেকে মুক্ত করুন।</div></div>
+          <div class="mc"><div class="mt">☀️ গায়ত্রী মন্ত্র</div><div class="mx">ওঁ ভূর্ভুবঃ স্বঃ।<br>তৎ সবিতুর্বরেণ্যম্।<br>ভর্গো দেবস্য ধীমহি।<br>ধিয়ো যো নঃ প্রচোদয়াৎ।।</div><div class="mm">হে প্রভু! আমাদের বুদ্ধিকে সৎপথে পরিচালিত করুন।</div></div>
+          <div class="mc"><div class="mt">🐘 গণেশ মন্ত্র</div><div class="mx">ওঁ গং গণপতয়ে নমঃ।<br>সর্বজনং মে বশমানয় স্বাহা।।</div><div class="mm">হে গণেশ! সকল বিঘ্ন দূর করুন।</div></div>
+          </div>
+          <div id="page-festival" class="page">
+          <div class="ai-hdr"><h2>🎉 হিন্দু উৎসব ও পার্বণ</h2><p>বার্ষিক উৎসবের তালিকা</p></div>
+          <div class="fi"><div class="fic">🌸</div><div><div class="fn">দুর্গা পূজা</div><div class="fd">মহাশক্তি দেবী দুর্গার আরাধনার সর্বোচ্চ উৎসব।</div><span class="fdt">📅 আশ্বিন মাস</span></div></div>
+          <div class="fi"><div class="fic">🪔</div><div><div class="fn">দীপাবলি</div><div class="fd">আলোর উৎসব। লক্ষ্মী পূজাও এই দিনে পালিত হয়।</div><span class="fdt">📅 কার্তিক মাস</span></div></div>
+          <div class="fi"><div class="fic">🎨</div><div><div class="fn">হোলি / দোল যাত্রা</div><div class="fd">রঙের উৎসব। রাধা-কৃষ্ণের প্রেমের উৎসব।</div><span class="fdt">📅 ফাল্গুন মাস</span></div></div>
+          <div class="fi"><div class="fic">💙</div><div><div class="fn">জন্মাষ্টমী</div><div class="fd">ভগবান শ্রীকৃষ্ণের জন্মতিথি।</div><span class="fdt">📅 ভাদ্র মাস</span></div></div>
+          <div class="fi"><div class="fic">⛵</div><div><div class="fn">রথযাত্রা</div><div class="fd">জগন্নাথদেবের বার্ষিক রথযাত্রা।</div><span class="fdt">📅 আষাঢ় মাস</span></div></div>
+          </div>
+          <div id="page-panchang" class="page">
+          <div class="ai-hdr"><h2>📅 পঞ্চাঙ্গ ও শুভ সময়</h2><p>আজকের তিথি নক্ষত্র ও মুহূর্ত</p></div>
+          <div class="pg">
+          <div class="pi"><span class="pic">📅</span><div class="pil">তিথি</div><div class="piv" id="pt">—</div></div>
+          <div class="pi"><span class="pic">⭐</span><div class="pil">নক্ষত্র</div><div class="piv" id="pn">—</div></div>
+          <div class="pi"><span class="pic">🌙</span><div class="pil">পক্ষ</div><div class="piv" id="pp">—</div></div>
+          <div class="pi"><span class="pic">🌅</span><div class="pil">সূর্যোদয়</div><div class="piv">৫:৩০ AM</div></div>
+          <div class="pi"><span class="pic">🌇</span><div class="pil">সূর্যাস্ত</div><div class="piv">৬:১৫ PM</div></div>
+          <div class="pi"><span class="pic">🍀</span><div class="pil">শুভ সময়</div><div class="piv" id="pm">—</div></div>
+          </div>
+          <div class="ibox">
+          <textarea id="pi2" rows="3" placeholder="শুভ মুহূর্ত জিজ্ঞেস করুন..."></textarea>
+          <button class="sbtn" onclick="askPanchang()"><span>📅</span> শুভ সময় জানুন</button>
+          </div>
+          <div class="rbox" id="prb"><div class="rhdr"><span>📅</span><h4>পঞ্চাঙ্গ উত্তর</h4></div><div id="pld" class="dots" style="display:none"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div><div class="rc" id="prc"></div></div>
+          </div>
+          <div id="page-prayer" class="page">
+          <div class="ai-hdr"><h2>🙏 ব্যক্তিগত প্রার্থনা</h2><p>AI দিয়ে বিশেষ প্রার্থনা তৈরি করুন</p></div>
+          <div class="ibox">
+          <div class="qps">
+          <button class="qb" onclick="document.getElementById('pri').value=this.textContent">সন্তান লাভের প্রার্থনা</button>
+          <button class="qb" onclick="document.getElementById('pri').value=this.textContent">পরীক্ষায় সফলতার প্রার্থনা</button>
+          <button class="qb" onclick="document.getElementById('pri').value=this.textContent">ব্যবসায় সফলতার প্রার্থনা</button>
+          <button class="qb" onclick="document.getElementById('pri').value=this.textContent">রোগমুক্তির প্রার্থনা</button>
+          </div>
+          <textarea id="pri" rows="4" placeholder="আপনার মনের কথা লিখুন..."></textarea>
+          <button class="sbtn" onclick="askPrayer()"><span>🙏</span> আমার প্রার্থনা তৈরি করুন</button>
+          </div>
+          <div class="rbox" id="prrb"><div class="rhdr"><span>🌸</span><h4>আপনার বিশেষ প্রার্থনা</h4></div><div id="prld" class="dots" style="display:none"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div><div class="rc" id="prrc"></div></div>
+          </div>
+          </main>
+          <footer><p>🕉️ হিন্দু ধর্ম AI — ঈশ্বরের কৃপায় সকলের কল্যাণ হোক 🕉️</p></footer>
+          <script>
+          const EP='https://ais-dev-v2q3z47ktmramt3bwyb577-234096854893.asia-southeast1.run.app/api/v1/chat';
+          const AK='dharma_live_60244e8a110b4b8189307610';
+          const cats={general:'তুমি হিন্দু ধর্মের বিশেষজ্ঞ। বাংলায় সহজ ভক্তিমূলক ভাষায় উত্তর দাও।',gita:'তুমি ভগবদ্গীতার বিশেষজ্ঞ। গীতার অধ্যায় উল্লেখ করে বাংলায় ব্যাখ্যা করো।',deity:'তুমি হিন্দু দেবদেবী বিশেষজ্ঞ। দেবতাদের মহিমা বাংলায় বর্ণনা করো।',ritual:'তুমি হিন্দু পূজা পদ্ধতি বিশেষজ্ঞ। পূজার নিয়ম বাংলায় বলো।',mantra:'তুমি মন্ত্র বিশেষজ্ঞ। মন্ত্রের অর্থ ও উপকারিতা বাংলায় বলো।',vastu:'তুমি বাস্তুশাস্ত্র বিশেষজ্ঞ। বাড়ির নিয়ম বাংলায় বলো।'};
+          const qps={general:['কৃষ্ণ কে?','গায়ত্রী মন্ত্রের অর্থ','দুর্গা পূজার নিয়ম','কর্ম কি?'],gita:['গীতার প্রথম অধ্যায়','কর্মযোগ কি?','নিষ্কাম কর্ম','আত্মা অমর কেন?'],deity:['শিব কে?','বিষ্ণুর দশ অবতার','দুর্গার ৯ রূপ','সরস্বতী কেন পূজনীয়?'],ritual:['গণেশ পূজার নিয়ম','লক্ষ্মী পূজার উপকরণ','সত্যনারায়ণ পূজা','সন্ধ্যা আরতি'],mantra:['মহামৃত্যুঞ্জয় অর্থ','হনুমান চালিশা','বিষ্ণু সহস্রনাম','শ্রী সূক্তম'],vastu:['পূজার ঘর কোন দিকে?','তুলসী কোথায়?','শোবার ঘরের নিয়ম','রান্নাঘরের বাস্তু']};
+          let cc='general';
+          function showPage(id,btn){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('nav .nb').forEach(b=>b.classList.remove('active'));document.getElementById('page-'+id).classList.add('active');if(btn&&btn.classList)btn.classList.add('active');if(id==='panchang')loadP();window.scrollTo(0,0);}
+          function setCat(c,el){cc=c;document.querySelectorAll('.ct').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');document.getElementById('qps').innerHTML=qps[c].map(p=>`<button class="qb" onclick="setP('${p}')">${p}</button>`).join('');}
+          function setP(t){document.getElementById('ui').value=t;}
+          async function callAPI(q,sys){const r=await fetch(EP,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+AK},body:JSON.stringify({query:sys?sys+'\n\nপ্রশ্ন: '+q:q})});const d=await r.json();if(!r.ok)throw new Error(d.message||'সার্ভার ত্রুটি');return d.response||d.answer||d.text||d.content||d.reply||JSON.stringify(d);}
+          async function askAI(){const q=document.getElementById('ui').value.trim();if(!q)return;const btn=document.getElementById('sb');const rb=document.getElementById('rb');const ld=document.getElementById('ld');const rc=document.getElementById('rc');btn.disabled=true;rb.classList.add('on');ld.style.display='flex';rc.textContent='';try{const a=await callAPI(q,cats[cc]);ld.style.display='none';rc.textContent=a;}catch(e){ld.style.display='none';rc.textContent='❌ ত্রুটি: '+e.message;}btn.disabled=false;}
+          async function askPanchang(){const q=document.getElementById('pi2').value.trim();if(!q)return;const rb=document.getElementById('prb');const ld=document.getElementById('pld');const rc=document.getElementById('prc');rb.classList.add('on');ld.style.display='flex';rc.textContent='';try{const a=await callAPI(q,'তুমি হিন্দু পঞ্চাঙ্গ বিশেষজ্ঞ। শুভ মুহূর্ত বাংলায় বলো।');ld.style.display='none';rc.textContent=a;}catch(e){ld.style.display='none';rc.textContent='❌ ত্রুটি: '+e.message;}}
+          async func
