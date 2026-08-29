@@ -8,12 +8,12 @@ on:
 
 jobs:
   build:
-    name: Build Debug APK
+    name: 🏗️ Build Debug APK
     runs-on: ubuntu-latest
 
     steps:
 
-      - name: ✅ Checkout source code
+      - name: ✅ Checkout Repository
         uses: actions/checkout@v4
 
       - name: ☕ Set up JDK 17
@@ -22,45 +22,102 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: 📋 Check project files
+      - name: 📦 Find & Extract ZIP (if exists)
         run: |
-          echo "=== Root files ==="
-          ls -la
-          echo "=== Checking gradlew ==="
-          find . -name "gradlew" -type f 2>/dev/null || echo "gradlew NOT FOUND"
-          find . -name "build.gradle" -type f 2>/dev/null || echo "build.gradle NOT FOUND"
-
-      - name: 🔑 Grant Gradle execute permission
-        run: |
-          GRADLEW_PATH=$(find . -name "gradlew" -type f | head -1)
-          if [ -z "$GRADLEW_PATH" ]; then
-            echo "❌ gradlew not found! Android project files missing."
-            exit 1
+          ZIP=$(find . -maxdepth 2 -name "*.zip" | head -1)
+          if [ -n "$ZIP" ]; then
+            echo "✅ ZIP found: $ZIP"
+            unzip -o "$ZIP" -d extracted_zip
+            # Move contents to root if nested
+            INNER=$(find extracted_zip -name "gradlew" | head -1 | xargs dirname 2>/dev/null)
+            if [ -n "$INNER" ] && [ "$INNER" != "extracted_zip" ]; then
+              cp -r "$INNER"/. .
+              echo "✅ Files moved from $INNER to root"
+            else
+              cp -r extracted_zip/. .
+            fi
+          else
+            echo "ℹ️ No ZIP found — using repo files directly"
           fi
-          chmod +x "$GRADLEW_PATH"
-          echo "✅ Found gradlew at: $GRADLEW_PATH"
+          echo "📁 Project files:"
+          ls -la
 
-      - name: 🔧 Cache Gradle packages
+      - name: 📥 Download Gradle Wrapper JAR
+        run: |
+          mkdir -p gradle/wrapper
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ] || [ $(wc -c < gradle/wrapper/gradle-wrapper.jar) -lt 10000 ]; then
+            echo "Downloading gradle-wrapper.jar..."
+            curl -sL "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar" \
+                 -o gradle/wrapper/gradle-wrapper.jar
+            echo "✅ Downloaded: $(wc -c < gradle/wrapper/gradle-wrapper.jar) bytes"
+          else
+            echo "✅ gradle-wrapper.jar already exists"
+          fi
+
+      - name: 🔧 Fix Gradle Wrapper Properties
+        run: |
+          cat > gradle/wrapper/gradle-wrapper.properties << 'PROPS'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          PROPS
+          echo "✅ gradle-wrapper.properties updated"
+
+      - name: 🔑 Create & Fix gradlew
+        run: |
+          cat > gradlew << 'GRADLEW'
+          #!/bin/sh
+          APP_HOME="$(cd "$(dirname "$0")" && pwd -P)"
+          CLASSPATH="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+          exec java -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
+          GRADLEW
+          chmod +x gradlew
+          echo "✅ gradlew ready"
+
+      - name: 🔧 Fix app/build.gradle (namespace & Java 17)
+        run: |
+          if [ -f app/build.gradle ]; then
+            # Add namespace if missing
+            if ! grep -q "namespace" app/build.gradle; then
+              sed -i "s/android {/android {\n    namespace 'com.hindudharma.ai'/" app/build.gradle
+            fi
+            # Fix Java version to 17
+            sed -i "s/VERSION_1_8/VERSION_17/g" app/build.gradle
+            echo "✅ app/build.gradle fixed"
+            cat app/build.gradle
+          fi
+
+      - name: 🔧 Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
 
       - name: 🏗️ Build Debug APK
         run: |
-          GRADLEW_PATH=$(find . -name "gradlew" -type f | head -1)
-          PROJ_DIR=$(dirname "$GRADLEW_PATH")
-          cd "$PROJ_DIR"
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --stacktrace --no-daemon
+          echo "✅ Build complete!"
+          find . -name "*.apk" -type f
 
-      - name: 📦 Upload APK Artifact
+      - name: 📤 Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: HinduDharmaAI-debug-${{ github.run_number }}
-          path: |
-            **/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
+          name: HinduDharmaAI-v${{ github.run_number }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: 🎉 Build Success Summary
+        run: |
+          APK=$(find . -name "app-debug.apk" | head -1)
+          SIZE=$(du -sh "$APK" 2>/dev/null | cut -f1)
+          echo "=================================="
+          echo "✅ APK Build Successful!"
+          echo "📦 APK Size: $SIZE"
+          echo "🔢 Build Number: ${{ github.run_number }}"
+          echo "=================================="
